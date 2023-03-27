@@ -1,56 +1,60 @@
-import React from 'react';
-import Searchbar from './Searchbar/Searchbar';
+import { useState, useEffect } from 'react';
+import { animateScroll } from 'react-scroll';
 import api from '../services/api';
+import Searchbar from './Searchbar/Searchbar';
 import Loader from './Loader/Loader';
 import ImageGallery from './ImageGallery/ImageGallery';
-import { PER_PAGE } from '../services/api';
 import Button from './Button/Button';
 import Modal from './Modal/Modal';
-import { animateScroll } from 'react-scroll';
+import STATUS from '../services/statuses';
+import { PER_PAGE } from '../services/api';
 import css from './app.module.css';
 
-export class App extends React.Component {
-  state = {
-    status: 'idle',
-    error: '',
-    searchQuery: '',
-    page: 0,
-    maxPage: 0,
-    hits: [],
-    isModalOpened: false,
-    modalImgAlt: '',
-    modalImgURL: '',
-  };
+export function App() {
+  const [status, setStatus] = useState(() => STATUS.IDLE);
+  const [error, setError] = useState(() => '');
+  const [searchQuery, setSearchQuery] = useState(() => '');
+  const [currentPage, setCurrentPage] = useState(() => 0);
+  const [maxPage, setMaxPage] = useState(() => 0);
+  const [hits, setHits] = useState(() => []);
+  const [isModalOpened, setIsModalOpened] = useState(() => false);
+  const [modalImgAlt, setModalImgAlt] = useState(() => '');
+  const [modalImgURL, setModalImgURL] = useState(() => '');
 
-  onSubmit = formValue => {
-    if (this.state.searchQuery !== formValue) {
-      this.setState({ searchQuery: formValue, page: 1 });
+  const onSubmit = (event, inputRef) => {
+    event.preventDefault();
+    const value = inputRef.current.value.trim();
+    if (!value) {
+      setError('Empty input, write something, please.');
+      setStatus(STATUS.REJECTED);
+      return;
     }
+    if (searchQuery !== value) {
+      setSearchQuery(value);
+      setCurrentPage(1);
+    }
+    inputRef.current.value = '';
   };
 
-  toggleModal = () => {
-    this.setState({ isModalOpened: !this.state.isModalOpened });
+  const toggleModal = () => {
+    setIsModalOpened(!isModalOpened);
   };
 
-  closeModalOnBackdropCLick = event => {
+  const closeModalOnBackdropClick = event => {
     if (event.currentTarget === event.target) {
-      this.toggleModal();
+      toggleModal();
     }
   };
 
-  openModal = event => {
+  const openModal = event => {
     if (event.target.tagName !== 'IMG') return;
-    this.setState({
-      modalImgAlt: event.target.alt,
-      modalImgURL: event.target.dataset.largeimageurl,
-    });
-    this.toggleModal();
+    setModalImgAlt(event.target.alt);
+    setModalImgURL(event.target.dataset.largeimageurl);
+    toggleModal();
   };
 
-  onLoadMoreClick = () => {
-    this.setState(prevState => {
-      return { page: ++prevState.page };
-    });
+  const onLoadMoreClick = () => {
+    setCurrentPage(prevState => ++prevState);
 
     animateScroll.scrollToBottom({
       duration: 1000,
@@ -59,8 +63,8 @@ export class App extends React.Component {
     });
   };
 
-  loadNewImages = async (searchQuery, page, prevState) => {
-    this.setState({ status: 'pending' });
+  const loadNewImages = async (searchQuery, page) => {
+    setStatus(STATUS.PENDING);
 
     let data = {};
     try {
@@ -69,70 +73,47 @@ export class App extends React.Component {
         throw new Error('No results found.');
       }
     } catch (error) {
-      this.setState({ status: 'rejected', error: error.message });
+      setError(error.message);
+      setStatus(STATUS.REJECTED);
       return;
     }
 
     if (page === 1) {
-      this.setState({
-        hits: [...data.hits],
-        maxPage: Math.ceil(data.totalHits / PER_PAGE),
-      });
+      setHits([...data.hits]);
+      setMaxPage(Math.ceil(data.totalHits / PER_PAGE));
     } else {
-      this.setState({ hits: [...prevState.hits, ...data.hits] });
+      setHits(prevState => [...prevState, ...data.hits]);
     }
 
-    this.setState({ status: 'resolved' });
+    setStatus(STATUS.RESOLVED);
   };
 
-  componentDidUpdate(prevProps, prevState) {
-    const { searchQuery, page } = this.state;
-    if (searchQuery === prevState.searchQuery && page === prevState.page) {
-      return;
-    }
+  useEffect(() => {
+    if (!searchQuery) return;
+    loadNewImages(searchQuery, currentPage);
+  }, [searchQuery, currentPage]);
 
-    !searchQuery
-      ? this.setState({
-          status: 'rejected',
-          error: 'Empty input, write something, please.',
-        })
-      : this.loadNewImages(searchQuery, page, prevState);
-  }
+  return (
+    <div className={css.app}>
+      <Searchbar onSubmit={onSubmit} />
 
-  render() {
-    const {
-      status,
-      error,
-      hits,
-      page,
-      maxPage,
-      isModalOpened,
-      modalImgAlt,
-      modalImgURL,
-    } = this.state;
+      {status === STATUS.PENDING && <Loader />}
+      {status === STATUS.REJECTED && <p className={css.error}>{error}</p>}
+      {status === STATUS.RESOLVED && (
+        <ImageGallery hits={hits} openModal={openModal} />
+      )}
+      {status === STATUS.RESOLVED && currentPage !== maxPage && (
+        <Button onLoadMoreClick={onLoadMoreClick} />
+      )}
 
-    return (
-      <div className={css.app}>
-        <Searchbar onSubmit={this.onSubmit} />
-
-        {status === 'pending' && <Loader />}
-        {status === 'rejected' && <p className={css.error}>{error}</p>}
-        {status === 'resolved' && (
-          <ImageGallery hits={hits} openModal={this.openModal} />
-        )}
-        {status === 'resolved' && page !== maxPage && (
-          <Button onLoadMoreClick={this.onLoadMoreClick} />
-        )}
-
-        {isModalOpened && (
-          <Modal
-            onClose={this.closeModalOnBackdropCLick}
-            onEscapeClose={this.toggleModal}
-            imageAlt={modalImgAlt}
-            imageURL={modalImgURL}
-          />
-        )}
-      </div>
-    );
-  }
+      {isModalOpened && (
+        <Modal
+          onClose={closeModalOnBackdropClick}
+          onKeyDown={toggleModal}
+          imageAlt={modalImgAlt}
+          imageURL={modalImgURL}
+        />
+      )}
+    </div>
+  );
 }
